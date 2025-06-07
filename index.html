@@ -2,7 +2,7 @@
 <html lang="ar">
 <head>
   <meta charset="UTF-8" />
-  <title>تتبع اليد والوجه مع نبض القلب وتعبير الوجه</title>
+  <title>تتبع اليد والوجه مع نبض القلب وحالة وجه محسّنة</title>
   <style>
     html, body {
       margin: 0; padding: 0; overflow: hidden; background-color: black; color: white;
@@ -54,17 +54,24 @@
       minTrackingConfidence: 0.5
     });
 
-    // مخزن لقيم اللون الأخضر (من الجبهة) لتحليل نبضات القلب
     const greenSamples = [];
-    const sampleInterval = 33; // تقريبا 30 FPS
-    const maxSamples = 300;    // تخزين 10 ثواني (300 * 33ms = ~10s)
+    const maxSamples = 600; // 20 ثانية على 30 FPS (يمكن تعديلها)
 
-    // دالة لحساب المتوسط من مجموعة أرقام
+    // حفظ آخر قياس نبض
+    let lastBPM = '--';
+    let lastEmotion = 'جاري التحليل...';
+
+    // أزمنة تحديث النبض والتعبير (مللي ثانية)
+    const bpmUpdateInterval = 60000;    // كل 60 ثانية
+    const emotionUpdateInterval = 3000; // كل 3 ثواني
+
+    let lastBPMUpdateTime = 0;
+    let lastEmotionUpdateTime = 0;
+
     function mean(arr) {
       return arr.reduce((a,b) => a + b, 0) / arr.length;
     }
 
-    // دالة لحساب تردد تقريبي باستخدام تحليل بسيط (zero-crossing count)
     function estimateHeartRate(samples, fps) {
       let meanVal = mean(samples);
       let zeroCrossings = 0;
@@ -73,32 +80,42 @@
           zeroCrossings++;
         }
       }
-      const freq = zeroCrossings / (2 * (samples.length / fps)); // تردد بالهرتز
+      const freq = zeroCrossings / (2 * (samples.length / fps));
       const bpm = Math.round(freq * 60);
       return bpm;
     }
 
-    // دالة تحليل تعبير الوجه البسيط
-    function analyzeExpression(faceLandmarks) {
-      // نقاط الفم: 13 = أسفل الشفة العليا, 14 = أعلى الشفة السفلى
-      // نقاط العين اليمنى: 159 (الجفن العلوي), 145 (الجفن السفلي)
-      // نقاط العين اليسرى: 386 (الجفن العلوي), 374 (الجفن السفلي)
-
-      const mouthOpen = distance(faceLandmarks[13], faceLandmarks[14]) > 0.04; // عتبة مفتوحة
-      const rightEyeOpen = distance(faceLandmarks[159], faceLandmarks[145]) > 0.015;
-      const leftEyeOpen = distance(faceLandmarks[386], faceLandmarks[374]) > 0.015;
-
-      if (!mouthOpen && !rightEyeOpen && !leftEyeOpen) return "نائم";
-      if (mouthOpen && rightEyeOpen && leftEyeOpen) return "جوعان أو يتكلم";
-      if (!mouthOpen && rightEyeOpen && leftEyeOpen) return "منتبه";
-      return "غير محدد";
-    }
-
-    // دالة حساب المسافة بين نقطتين (نسبة على الوجه)
+    // دالة حساب المسافة بين نقطتين
     function distance(a, b) {
       const dx = a.x - b.x;
       const dy = a.y - b.y;
       return Math.sqrt(dx*dx + dy*dy);
+    }
+
+    // تحليل تعبير الوجه بدقة أكبر
+    function analyzeExpression(faceLandmarks) {
+      // فتح الفم: النقاط 13 (أسفل الشفة العليا), 14 (أعلى الشفة السفلى)
+      const mouthOpen = distance(faceLandmarks[13], faceLandmarks[14]) > 0.04;
+
+      // عيون مفتوحة: نقاط الجفون العليا والسفلى لكل عين
+      const rightEyeOpen = distance(faceLandmarks[159], faceLandmarks[145]) > 0.015;
+      const leftEyeOpen = distance(faceLandmarks[386], faceLandmarks[374]) > 0.015;
+
+      // الابتسامة: قياس عرض الفم (61 و291) مقابل ارتفاع الفم (13 و14)
+      const mouthWidth = distance(faceLandmarks[61], faceLandmarks[291]);
+      const mouthHeight = distance(faceLandmarks[13], faceLandmarks[14]);
+      const smileRatio = mouthWidth / mouthHeight;
+
+      // حواجب (للغضب/الدهشة) - نقاط الحاجب الأعلى (70 و300) مقابل العين
+      const leftEyebrowHeight = faceLandmarks[70].y - faceLandmarks[159].y;
+      const rightEyebrowHeight = faceLandmarks[300].y - faceLandmarks[386].y;
+
+      if (!rightEyeOpen && !leftEyeOpen && !mouthOpen) return "نائم";
+      if (mouthOpen && smileRatio < 3 && rightEyeOpen && leftEyeOpen) return "يتكلم أو جوعان";
+      if (smileRatio > 3 && rightEyeOpen && leftEyeOpen) return "مبتسم أو ضاحك";
+      if (leftEyebrowHeight < 0.02 && rightEyebrowHeight < 0.02) return "غاضب";
+      if (leftEyebrowHeight > 0.05 && rightEyebrowHeight > 0.05) return "مفاجئ";
+      return "محايد";
     }
 
     holistic.onResults(results => {
@@ -119,9 +136,10 @@
         drawLandmarks(ctx, results.rightHandLandmarks, { color: 'rgba(255,0,0,0.8)', radius: 4 });
       }
 
-      // قياس اللون الأخضر في الجبهة (نقاط محددة)
+      const now = Date.now();
+
+      // قياس اللون الأخضر في الجبهة (إذا الوجه موجود)
       if (results.faceLandmarks) {
-        // نقاط الجبهة (اختيار بعض النقاط بين 10 و 338)
         const foreheadIndices = [10, 338, 297, 332, 284, 251];
         let greenSum = 0;
         let count = 0;
@@ -129,39 +147,40 @@
         foreheadIndices.forEach(idx => {
           const x = results.faceLandmarks[idx].x * canvas.width;
           const y = results.faceLandmarks[idx].y * canvas.height;
-
-          // نقرأ لون البكسل من الصورة في الكانفس
           const pixel = ctx.getImageData(x, y, 1, 1).data;
-          greenSum += pixel[1]; // اللون الأخضر
+          greenSum += pixel[1];
           count++;
         });
 
         const avgGreen = greenSum / count;
         greenSamples.push(avgGreen);
 
-        // المحافظة على حجم المخزن
         if (greenSamples.length > maxSamples) {
           greenSamples.shift();
         }
 
-        // تقدير نبضات القلب كل 10 ثواني تقريبًا
-        if (greenSamples.length === maxSamples) {
-          const bpm = estimateHeartRate(greenSamples, 30); // fps = 30
+        // تحديث نبض القلب كل دقيقة
+        if (now - lastBPMUpdateTime > bpmUpdateInterval && greenSamples.length >= maxSamples) {
+          const bpm = estimateHeartRate(greenSamples, 30);
           if (bpm > 40 && bpm < 180) {
-            bpmElement.textContent = bpm;
+            lastBPM = bpm;
           } else {
-            bpmElement.textContent = '--';
+            lastBPM = '--';
           }
+          bpmElement.textContent = lastBPM;
+          lastBPMUpdateTime = now;
         }
+      } else {
+        bpmElement.textContent = '--';
       }
 
-      // تحليل التعبير إذا كانت ملامح الوجه موجودة
-      if (results.faceLandmarks) {
-        const emotion = analyzeExpression(results.faceLandmarks);
-        emotionElement.textContent = emotion;
-      } else {
+      // تحديث التعبير كل 3 ثواني
+      if (results.faceLandmarks && (now - lastEmotionUpdateTime > emotionUpdateInterval)) {
+        lastEmotion = analyzeExpression(results.faceLandmarks);
+        emotionElement.textContent = lastEmotion;
+        lastEmotionUpdateTime = now;
+      } else if (!results.faceLandmarks) {
         emotionElement.textContent = "لا يوجد وجه";
-        bpmElement.textContent = '--';
       }
     });
 
