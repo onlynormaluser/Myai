@@ -2,182 +2,154 @@
 <html lang="ar">
 <head>
   <meta charset="UTF-8">
-  <title>تتبع اليد - إشارات</title>
+  <title>تتبع ذكي - نبض وتعابير</title>
   <style>
-    html, body {
+    body, html {
       margin: 0;
       padding: 0;
       height: 100%;
-      overflow: hidden;
       background: black;
+      color: white;
+      font-family: Tahoma, sans-serif;
+      overflow: hidden;
     }
 
-    canvas, video {
+    video, canvas {
       position: absolute;
-      top: 0;
-      left: 0;
+      top: 0; left: 0;
       width: 100vw;
       height: 100vh;
       object-fit: cover;
     }
 
-    #startButton {
+    #overlay {
       position: absolute;
-      top: 50%;
-      left: 50%;
-      transform: translate(-50%, -50%);
-      padding: 20px 40px;
-      font-size: 24px;
-      cursor: pointer;
+      top: 10px;
+      left: 10px;
       z-index: 10;
-    }
-
-    #message {
-      position: absolute;
-      top: 50%;
-      left: 50%;
-      transform: translate(-50%, -50%);
-      color: white;
-      font-size: 48px;
-      font-weight: bold;
-      display: none;
-      z-index: 20;
-      text-shadow: 2px 2px 10px #000;
-      transition: all 0.3s ease;
-    }
-
-    /* تأثير مرعب */
-    .scary {
-      color: red;
-      font-size: 64px;
-      animation: shake 0.4s infinite;
-      text-shadow: 4px 4px 15px #ff0000;
-    }
-
-    @keyframes shake {
-      0% { transform: translate(-50%, -50%) rotate(0deg); }
-      25% { transform: translate(-52%, -48%) rotate(-1deg); }
-      50% { transform: translate(-50%, -52%) rotate(1deg); }
-      75% { transform: translate(-48%, -50%) rotate(-1deg); }
-      100% { transform: translate(-50%, -50%) rotate(0deg); }
+      background: rgba(0, 0, 0, 0.6);
+      padding: 10px 20px;
+      border-radius: 10px;
+      font-size: 18px;
     }
   </style>
-
-  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
 </head>
 <body>
-  <button id="startButton">ابدأ التتبع</button>
-  <video class="input_video" autoplay playsinline muted></video>
-  <canvas class="output_canvas"></canvas>
-  <div id="message">رسالة</div>
+  <video id="video" autoplay playsinline muted></video>
+  <canvas id="canvas"></canvas>
+  <div id="overlay">
+    <div id="pulse">نبض القلب: ...</div>
+    <div id="expression">الحالة: ...</div>
+  </div>
+
+  <!-- مكتبات MediaPipe و face-api -->
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/face_mesh.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/face-api.js"></script>
 
   <script>
-    const videoElement = document.querySelector('.input_video');
-    const canvasElement = document.querySelector('.output_canvas');
-    const canvasCtx = canvasElement.getContext('2d');
-    const message = document.getElementById('message');
+    const video = document.getElementById('video');
+    const canvas = document.getElementById('canvas');
+    const ctx = canvas.getContext('2d');
+    const pulseDiv = document.getElementById('pulse');
+    const expressionDiv = document.getElementById('expression');
 
-    const hands = new Hands({
-      locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`
+    canvas.width = window.innerWidth;
+    canvas.height = window.innerHeight;
+
+    // إعداد face-api
+    Promise.all([
+      faceapi.nets.tinyFaceDetector.loadFromUri('https://cdn.jsdelivr.net/npm/face-api.js/models'),
+      faceapi.nets.faceExpressionNet.loadFromUri('https://cdn.jsdelivr.net/npm/face-api.js/models')
+    ]).then(startVideo);
+
+    async function startVideo() {
+      const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+      video.srcObject = stream;
+    }
+
+    // MediaPipe إعداد FaceMesh
+    const faceMesh = new FaceMesh({
+      locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${file}`
+    });
+    faceMesh.setOptions({
+      maxNumFaces: 1,
+      refineLandmarks: true,
+      minDetectionConfidence: 0.5,
+      minTrackingConfidence: 0.5
     });
 
-    hands.setOptions({
-      maxNumHands: 1,
-      modelComplexity: 1,
-      minDetectionConfidence: 0.7,
-      minTrackingConfidence: 0.7
-    });
+    faceMesh.onResults(onFaceResults);
 
-    hands.onResults(results => {
-      canvasCtx.save();
-      canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
-      canvasCtx.drawImage(results.image, 0, 0, canvasElement.width, canvasElement.height);
-
-      let showTakbeer = false;
-      let showLove = false;
-      let showPower = false;
-
-      if (results.multiHandLandmarks) {
-        for (const landmarks of results.multiHandLandmarks) {
-          drawConnectors(canvasCtx, landmarks, HAND_CONNECTIONS, { color: '#0f0', lineWidth: 3 });
-          drawLandmarks(canvasCtx, landmarks, { color: '#f00', radius: 5 });
-
-          const indexTip = landmarks[8];
-          const indexDip = landmarks[7];
-          const middleTip = landmarks[12];
-          const middleDip = landmarks[11];
-          const ringTip = landmarks[16];
-          const ringDip = landmarks[14];
-          const pinkyTip = landmarks[20];
-          const pinkyDip = landmarks[18];
-          const thumbTip = landmarks[4];
-          const thumbIp = landmarks[3];
-
-          const isIndexUp = indexTip.y < indexDip.y;
-          const isMiddleUp = middleTip.y < middleDip.y;
-          const isRingDown = ringTip.y > ringDip.y;
-          const isPinkyDown = pinkyTip.y > pinkyDip.y;
-
-          const isOnlyIndexUp = isIndexUp && !isMiddleUp && isRingDown && isPinkyDown;
-          const isOnlyMiddleUp = isMiddleUp && !isIndexUp && isRingDown && isPinkyDown;
-
-          const isIndexDown = indexTip.y > indexDip.y;
-          const isMiddleDown = middleTip.y > middleDip.y;
-          const isRingReallyDown = ringTip.y > ringDip.y;
-          const isPinkyReallyDown = pinkyTip.y > pinkyDip.y;
-          const isThumbDown = thumbTip.y > thumbIp.y;
-
-          const isFist = isIndexDown && isMiddleDown && isRingReallyDown && isPinkyReallyDown && isThumbDown;
-
-          if (isOnlyIndexUp) {
-            showTakbeer = true;
-          } else if (isOnlyMiddleUp) {
-            showLove = true;
-          } else if (isFist) {
-            showPower = true;
-          }
-        }
-      }
-
-      if (showTakbeer) {
-        message.textContent = "الله أكبر";
-        message.classList.remove("scary");
-        message.style.display = 'block';
-      } else if (showLove) {
-        message.textContent = "أحبك";
-        message.classList.remove("scary");
-        message.style.display = 'block';
-      } else if (showPower) {
-        message.textContent = "قوة";
-        message.classList.add("scary");
-        message.style.display = 'block';
-      } else {
-        message.style.display = 'none';
-        message.classList.remove("scary");
-      }
-
-      canvasCtx.restore();
-    });
-
-    const camera = new Camera(videoElement, {
+    const camera = new Camera(video, {
       onFrame: async () => {
-        canvasElement.width = window.innerWidth;
-        canvasElement.height = window.innerHeight;
-        await hands.send({ image: videoElement });
+        await faceMesh.send({ image: video });
+        detectFaceExpression();
       },
       width: window.innerWidth,
       height: window.innerHeight
     });
 
-    document.getElementById('startButton').addEventListener('click', async () => {
-      if (document.documentElement.requestFullscreen) {
-        await document.documentElement.requestFullscreen();
+    camera.start();
+
+    // تحليل تعابير الوجه
+    async function detectFaceExpression() {
+      const detections = await faceapi.detectSingleFace(video, new faceapi.TinyFaceDetectorOptions()).withFaceExpressions();
+      if (detections && detections.expressions) {
+        const expressions = detections.expressions;
+        const sorted = Object.entries(expressions).sort((a, b) => b[1] - a[1]);
+        const [mainExpression, confidence] = sorted[0];
+
+        const readable = {
+          neutral: "محايد",
+          happy: "سعيد",
+          sad: "حزين",
+          angry: "غاضب",
+          fearful: "خائف",
+          disgusted: "مشمئز",
+          surprised: "منبهر"
+        };
+
+        expressionDiv.textContent = `الحالة: ${readable[mainExpression] || mainExpression}`;
+        speakOnce(`أنت تبدو ${readable[mainExpression] || mainExpression}`);
       }
-      document.getElementById('startButton').style.display = 'none';
-      camera.start();
-    });
+    }
+
+    let lastSpoken = '';
+    function speakOnce(text) {
+      if (lastSpoken === text) return;
+      lastSpoken = text;
+      const msg = new SpeechSynthesisUtterance(text);
+      msg.lang = 'ar';
+      speechSynthesis.speak(msg);
+    }
+
+    // تقدير نبض القلب (بسيط من تغير لون الوجه)
+    let greenValues = [];
+    function onFaceResults(results) {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.drawImage(results.image, 0, 0, canvas.width, canvas.height);
+
+      if (results.multiFaceLandmarks && results.multiFaceLandmarks.length > 0) {
+        const forehead = results.multiFaceLandmarks[0][10]; // نقطة في الجبهة
+        const x = forehead.x * canvas.width;
+        const y = forehead.y * canvas.height;
+        const pixel = ctx.getImageData(x, y, 1, 1).data;
+        greenValues.push(pixel[1]);
+
+        if (greenValues.length > 100) {
+          greenValues.shift();
+          const avg = greenValues.reduce((a, b) => a + b, 0) / greenValues.length;
+          const variation = greenValues.reduce((a, b) => a + Math.abs(b - avg), 0) / greenValues.length;
+
+          // تقدير نبض (مجرد تقريب وهمي لغرض العرض)
+          const bpm = Math.round(60 + variation * 5);
+          pulseDiv.textContent = `نبض القلب: ${bpm}`;
+        }
+      }
+    }
   </script>
 </body>
 </html>
