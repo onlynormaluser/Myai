@@ -2,7 +2,7 @@
 <html lang="ar">
 <head>
   <meta charset="UTF-8">
-  <title>تتبع اليد والتعرف على الكوب</title>
+  <title>تتبع اليد - الله أكبر</title>
   <style>
     html, body {
       margin: 0;
@@ -10,6 +10,7 @@
       height: 100%;
       overflow: hidden;
       background: black;
+      font-family: sans-serif;
     }
 
     canvas, video {
@@ -28,56 +29,47 @@
       transform: translate(-50%, -50%);
       padding: 20px 40px;
       font-size: 24px;
+      background-color: #0f0;
+      border: none;
+      border-radius: 10px;
       cursor: pointer;
       z-index: 10;
     }
 
-    #message, #objectMessage {
+    #message {
       position: absolute;
+      bottom: 10%;
       left: 50%;
       transform: translateX(-50%);
+      color: white;
       font-size: 48px;
       font-weight: bold;
+      display: none;
       z-index: 20;
       text-shadow: 2px 2px 10px #000;
-      display: none;
-    }
-
-    #message {
-      top: 50%;
-      color: white;
-    }
-
-    #objectMessage {
-      bottom: 10%;
-      color: yellow;
     }
   </style>
 
-  <!-- MediaPipe -->
   <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
-
-  <!-- TensorFlow.js + COCO-SSD -->
-  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@3.20.0"></script>
-  <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd"></script>
 </head>
 <body>
   <button id="startButton">ابدأ التتبع</button>
   <video class="input_video" autoplay playsinline muted></video>
   <canvas class="output_canvas"></canvas>
   <div id="message">الله أكبر</div>
-  <div id="objectMessage">كوب</div>
 
   <script>
     const videoElement = document.querySelector('.input_video');
     const canvasElement = document.querySelector('.output_canvas');
     const canvasCtx = canvasElement.getContext('2d');
     const message = document.getElementById('message');
-    const objectMessage = document.getElementById('objectMessage');
+    const startButton = document.getElementById('startButton');
 
-    // MediaPipe - Hands
+    let isMessageVisible = false;
+    let lastTriggerTime = 0;
+
     const hands = new Hands({
       locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`
     });
@@ -96,75 +88,58 @@
 
       let showMessage = false;
 
-      if (results.multiHandLandmarks) {
-        for (const landmarks of results.multiHandLandmarks) {
-          drawConnectors(canvasCtx, landmarks, HAND_CONNECTIONS, { color: '#0f0', lineWidth: 3 });
-          drawLandmarks(canvasCtx, landmarks, { color: '#f00', radius: 5 });
+      if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
+        const landmarks = results.multiHandLandmarks[0];
 
-          const indexTip = landmarks[8];
-          const indexDip = landmarks[7];
-          const middleTip = landmarks[12];
-          const ringTip = landmarks[16];
-          const pinkyTip = landmarks[20];
-          const thumbTip = landmarks[4];
-          const thumbIp = landmarks[3];
+        drawConnectors(canvasCtx, landmarks, HAND_CONNECTIONS, { color: '#0f0', lineWidth: 3 });
+        drawLandmarks(canvasCtx, landmarks, { color: '#f00', radius: 5 });
 
-          const isIndexUp = indexTip.y < indexDip.y;
-          const isMiddleDown = middleTip.y > landmarks[10].y;
-          const isRingDown = ringTip.y > landmarks[14].y;
-          const isPinkyDown = pinkyTip.y > landmarks[18].y;
+        const [indexTip, indexDip, middleTip, middlePip, ringTip, ringPip, pinkyTip, pinkyPip, thumbTip, thumbIp] = 
+              [landmarks[8], landmarks[7], landmarks[12], landmarks[10], landmarks[16], landmarks[14], landmarks[20], landmarks[18], landmarks[4], landmarks[3]];
 
-          if (isIndexUp && isMiddleDown && isRingDown && isPinkyDown) {
+        const isIndexUp = indexTip.y < indexDip.y;
+        const isMiddleDown = middleTip.y > middlePip.y;
+        const isRingDown = ringTip.y > ringPip.y;
+        const isPinkyDown = pinkyTip.y > pinkyPip.y;
+        const isThumbNear = Math.abs(thumbTip.x - landmarks[2].x) < 0.1;
+
+        if (isIndexUp && isMiddleDown && isRingDown && isPinkyDown && isThumbNear) {
+          const now = Date.now();
+          if (now - lastTriggerTime > 2000) {
             showMessage = true;
+            lastTriggerTime = now;
           }
         }
       }
 
       message.style.display = showMessage ? 'block' : 'none';
+      isMessageVisible = showMessage;
+
       canvasCtx.restore();
     });
 
-    // Camera
     const camera = new Camera(videoElement, {
       onFrame: async () => {
         canvasElement.width = window.innerWidth;
         canvasElement.height = window.innerHeight;
         await hands.send({ image: videoElement });
-        detectCup(); // كشف الكوب
       },
       width: window.innerWidth,
       height: window.innerHeight
     });
 
-    // زر البدء
-    document.getElementById('startButton').addEventListener('click', async () => {
+    startButton.addEventListener('click', async () => {
       if (document.documentElement.requestFullscreen) {
         await document.documentElement.requestFullscreen();
       }
-      document.getElementById('startButton').style.display = 'none';
+      startButton.style.display = 'none';
       camera.start();
     });
 
-    // COCO-SSD - التعرف على الكوب
-    let objectModel;
-    let detectingObjects = false;
-
-    cocoSsd.load().then(model => {
-      objectModel = model;
-      console.log("تم تحميل نموذج التعرف على الكائنات");
+    window.addEventListener('resize', () => {
+      canvasElement.width = window.innerWidth;
+      canvasElement.height = window.innerHeight;
     });
-
-    async function detectCup() {
-      if (!objectModel || detectingObjects) return;
-      detectingObjects = true;
-
-      const predictions = await objectModel.detect(videoElement);
-      const foundCup = predictions.find(p => p.class === 'cup' && p.score > 0.6);
-
-      objectMessage.style.display = foundCup ? 'block' : 'none';
-
-      detectingObjects = false;
-    }
   </script>
 </body>
 </html>
