@@ -2,10 +2,10 @@
 <html lang="ar">
 <head>
   <meta charset="UTF-8" />
-  <title>تتبع اليد والوجه مع نبض القلب وحالة وجه ومحفز توتر</title>
+  <title>تحليل الوجه واليد - نبض وتعبير وتوتر</title>
   <style>
     html, body {
-      margin: 0; padding: 0; overflow: hidden; background-color: black; color: white;
+      margin: 0; padding: 0; overflow: hidden; background: black; color: white;
       font-family: Arial, sans-serif;
     }
     video, canvas {
@@ -24,7 +24,7 @@
   <div id="info">
     <div>نبضات القلب: <span id="bpm">--</span> نبضة/دقيقة</div>
     <div>الحالة العاطفية: <span id="emotion">جاري التحليل...</span></div>
-    <div>مؤشر التوتر: <span id="stress">--</span></div>
+    <div>مستوى التوتر: <span id="tension">--</span></div>
   </div>
 
   <script src="https://cdn.jsdelivr.net/npm/@mediapipe/holistic/holistic.js"></script>
@@ -36,7 +36,12 @@
     const ctx = canvas.getContext('2d');
     const bpmElement = document.getElementById('bpm');
     const emotionElement = document.getElementById('emotion');
-    const stressElement = document.getElementById('stress');
+    const tensionElement = document.getElementById('tension');
+
+    function resizeCanvas() {
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
+    }
 
     const holistic = new Holistic({
       locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/holistic/${file}`
@@ -45,7 +50,6 @@
     holistic.setOptions({
       modelComplexity: 1,
       smoothLandmarks: true,
-      enableSegmentation: false,
       refineFaceLandmarks: true,
       minDetectionConfidence: 0.5,
       minTrackingConfidence: 0.5
@@ -53,50 +57,60 @@
 
     const greenSamples = [];
     const maxSamples = 600;
+    const rightHandPositions = [];
+
     let lastBPM = '--';
     let lastEmotion = 'جاري التحليل...';
-    const bpmUpdateInterval = 60000;
-    const emotionUpdateInterval = 3000;
     let lastBPMUpdateTime = 0;
     let lastEmotionUpdateTime = 0;
 
-    const handPositions = [];
-    const stressWindow = 90;
+    const bpmUpdateInterval = 60000;
+    const emotionUpdateInterval = 3000;
+    const blinkHistory = Array(30).fill(false);
 
     function mean(arr) {
-      return arr.reduce((a,b) => a + b, 0) / arr.length;
+      return arr.reduce((a, b) => a + b, 0) / arr.length;
+    }
+
+    function getStd(arr) {
+      const m = mean(arr);
+      return Math.sqrt(arr.map(x => Math.pow(x - m, 2)).reduce((a, b) => a + b, 0) / arr.length);
     }
 
     function estimateHeartRate(samples, fps) {
       let meanVal = mean(samples);
       let zeroCrossings = 0;
-      for(let i=1; i < samples.length; i++) {
-        if ((samples[i-1] - meanVal) * (samples[i] - meanVal) < 0) {
+      for (let i = 1; i < samples.length; i++) {
+        if ((samples[i - 1] - meanVal) * (samples[i] - meanVal) < 0) {
           zeroCrossings++;
         }
       }
       const freq = zeroCrossings / (2 * (samples.length / fps));
-      const bpm = Math.round(freq * 60);
-      return bpm;
+      return Math.round(freq * 60);
     }
 
     function distance(a, b) {
       const dx = a.x - b.x;
       const dy = a.y - b.y;
-      return Math.sqrt(dx*dx + dy*dy);
+      return Math.sqrt(dx * dx + dy * dy);
     }
 
-    function analyzeExpression(faceLandmarks) {
+    function analyzeExpression(faceLandmarks, blinkHistory) {
       const mouthOpen = distance(faceLandmarks[13], faceLandmarks[14]) > 0.04;
       const rightEyeOpen = distance(faceLandmarks[159], faceLandmarks[145]) > 0.015;
       const leftEyeOpen = distance(faceLandmarks[386], faceLandmarks[374]) > 0.015;
+      const blinkRate = blinkHistory.filter(b => b === true).length / blinkHistory.length;
+
       const mouthWidth = distance(faceLandmarks[61], faceLandmarks[291]);
       const mouthHeight = distance(faceLandmarks[13], faceLandmarks[14]);
       const smileRatio = mouthWidth / mouthHeight;
+
       const leftEyebrowHeight = faceLandmarks[70].y - faceLandmarks[159].y;
       const rightEyebrowHeight = faceLandmarks[300].y - faceLandmarks[386].y;
 
-      if (!rightEyeOpen && !leftEyeOpen && !mouthOpen) return "نائم";
+      const headStability = Math.abs(faceLandmarks[10].x - faceLandmarks[152].x) < 0.005;
+
+      if (blinkRate < 0.2 && !mouthOpen && headStability) return "نائم";
       if (mouthOpen && smileRatio < 3 && rightEyeOpen && leftEyeOpen) return "يتكلم أو جوعان";
       if (smileRatio > 3 && rightEyeOpen && leftEyeOpen) return "مبتسم أو ضاحك";
       if (leftEyebrowHeight < 0.02 && rightEyebrowHeight < 0.02) return "غاضب";
@@ -104,23 +118,11 @@
       return "محايد";
     }
 
-    function computeStressLevel(positions) {
-      let totalDist = 0;
-      for (let i = 1; i < positions.length; i++) {
-        const dx = positions[i].x - positions[i - 1].x;
-        const dy = positions[i].y - positions[i - 1].y;
-        totalDist += Math.sqrt(dx * dx + dy * dy);
-      }
-      const avgDist = totalDist / (positions.length - 1);
-      if (avgDist < 0.002) return "منخفض";
-      if (avgDist < 0.008) return "متوسط";
-      return "مرتفع";
-    }
-
     holistic.onResults(results => {
       ctx.clearRect(0, 0, canvas.width, canvas.height);
       ctx.drawImage(results.image, 0, 0, canvas.width, canvas.height);
 
+      // رسم الوجه واليد
       if (results.faceLandmarks) {
         drawConnectors(ctx, results.faceLandmarks, FACEMESH_TESSELATION, { color: 'rgba(0,255,0,0.3)', lineWidth: 1 });
         drawLandmarks(ctx, results.faceLandmarks, { color: 'rgba(255,0,0,0.6)', radius: 1.5 });
@@ -132,44 +134,23 @@
       if (results.rightHandLandmarks) {
         drawConnectors(ctx, results.rightHandLandmarks, HAND_CONNECTIONS, { color: 'rgba(0,255,0,0.8)', lineWidth: 3 });
         drawLandmarks(ctx, results.rightHandLandmarks, { color: 'rgba(255,0,0,0.8)', radius: 4 });
-
-        const wrist = results.rightHandLandmarks[0];
-        handPositions.push({ x: wrist.x, y: wrist.y });
-
-        if (handPositions.length > stressWindow) {
-          handPositions.shift();
-        }
-
-        if (handPositions.length === stressWindow) {
-          const stressLevel = computeStressLevel(handPositions);
-          stressElement.textContent = stressLevel;
-        }
-      } else {
-        stressElement.textContent = '--';
       }
 
       const now = Date.now();
 
+      // قياس اللون الأخضر من الجبهة
       if (results.faceLandmarks) {
         const foreheadIndices = [10, 338, 297, 332, 284, 251];
         let greenSum = 0;
-        let count = 0;
-
-        foreheadIndices.forEach(idx => {
-          const x = results.faceLandmarks[idx].x * canvas.width;
-          const y = results.faceLandmarks[idx].y * canvas.height;
+        foreheadIndices.forEach(i => {
+          const x = results.faceLandmarks[i].x * canvas.width;
+          const y = results.faceLandmarks[i].y * canvas.height;
           const pixel = ctx.getImageData(x, y, 1, 1).data;
           greenSum += pixel[1];
-          count++;
         });
-
-        const avgGreen = greenSum / count;
+        const avgGreen = greenSum / foreheadIndices.length;
         greenSamples.push(avgGreen);
-
-        if (greenSamples.length > maxSamples) {
-          greenSamples.shift();
-        }
-
+        if (greenSamples.length > maxSamples) greenSamples.shift();
         if (now - lastBPMUpdateTime > bpmUpdateInterval && greenSamples.length >= maxSamples) {
           const bpm = estimateHeartRate(greenSamples, 30);
           lastBPM = (bpm > 40 && bpm < 180) ? bpm : '--';
@@ -180,19 +161,33 @@
         bpmElement.textContent = '--';
       }
 
-      if (results.faceLandmarks && (now - lastEmotionUpdateTime > emotionUpdateInterval)) {
-        lastEmotion = analyzeExpression(results.faceLandmarks);
+      // تحليل التوتر في اليد
+      if (results.rightHandLandmarks) {
+        const wrist = results.rightHandLandmarks[0];
+        rightHandPositions.push({ x: wrist.x, y: wrist.y });
+        if (rightHandPositions.length > 60) rightHandPositions.shift();
+        const xs = rightHandPositions.map(p => p.x);
+        const ys = rightHandPositions.map(p => p.y);
+        const tensionScore = (getStd(xs) + getStd(ys)) / 2;
+        tensionElement.textContent = tensionScore > 0.005 ? "مرتفع" : "منخفض";
+      } else {
+        tensionElement.textContent = "--";
+      }
+
+      // تحليل التعبير
+      if (results.faceLandmarks && now - lastEmotionUpdateTime > emotionUpdateInterval) {
+        const rightEyeOpen = distance(results.faceLandmarks[159], results.faceLandmarks[145]) > 0.015;
+        const leftEyeOpen = distance(results.faceLandmarks[386], results.faceLandmarks[374]) > 0.015;
+        const blinked = !rightEyeOpen && !leftEyeOpen;
+        blinkHistory.shift(); blinkHistory.push(blinked);
+
+        lastEmotion = analyzeExpression(results.faceLandmarks, blinkHistory);
         emotionElement.textContent = lastEmotion;
         lastEmotionUpdateTime = now;
       } else if (!results.faceLandmarks) {
         emotionElement.textContent = "لا يوجد وجه";
       }
     });
-
-    function resizeCanvas() {
-      canvas.width = video.videoWidth;
-      canvas.height = video.videoHeight;
-    }
 
     async function start() {
       const stream = await navigator.mediaDevices.getUserMedia({ video: true });
