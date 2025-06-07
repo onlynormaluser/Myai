@@ -2,7 +2,7 @@
 <html lang="ar">
 <head>
   <meta charset="UTF-8">
-  <title>تتبع اليد - الله أكبر</title>
+  <title>تتبع اليد والتعرف على الكوب</title>
   <style>
     html, body {
       margin: 0;
@@ -32,36 +32,52 @@
       z-index: 10;
     }
 
-    #message {
+    #message, #objectMessage {
       position: absolute;
-      top: 50%;
       left: 50%;
-      transform: translate(-50%, -50%);
-      color: white;
+      transform: translateX(-50%);
       font-size: 48px;
       font-weight: bold;
-      display: none;
       z-index: 20;
       text-shadow: 2px 2px 10px #000;
+      display: none;
+    }
+
+    #message {
+      top: 50%;
+      color: white;
+    }
+
+    #objectMessage {
+      bottom: 10%;
+      color: yellow;
     }
   </style>
 
+  <!-- MediaPipe -->
   <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
+
+  <!-- TensorFlow.js + COCO-SSD -->
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@3.20.0"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd"></script>
 </head>
 <body>
   <button id="startButton">ابدأ التتبع</button>
   <video class="input_video" autoplay playsinline muted></video>
   <canvas class="output_canvas"></canvas>
   <div id="message">الله أكبر</div>
+  <div id="objectMessage">كوب</div>
 
   <script>
     const videoElement = document.querySelector('.input_video');
     const canvasElement = document.querySelector('.output_canvas');
     const canvasCtx = canvasElement.getContext('2d');
     const message = document.getElementById('message');
+    const objectMessage = document.getElementById('objectMessage');
 
+    // MediaPipe - Hands
     const hands = new Hands({
       locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`
     });
@@ -85,7 +101,6 @@
           drawConnectors(canvasCtx, landmarks, HAND_CONNECTIONS, { color: '#0f0', lineWidth: 3 });
           drawLandmarks(canvasCtx, landmarks, { color: '#f00', radius: 5 });
 
-          // تحليل وضعية الإصبع
           const indexTip = landmarks[8];
           const indexDip = landmarks[7];
           const middleTip = landmarks[12];
@@ -98,7 +113,6 @@
           const isMiddleDown = middleTip.y > landmarks[10].y;
           const isRingDown = ringTip.y > landmarks[14].y;
           const isPinkyDown = pinkyTip.y > landmarks[18].y;
-          const isThumbInward = thumbTip.x < thumbIp.x;
 
           if (isIndexUp && isMiddleDown && isRingDown && isPinkyDown) {
             showMessage = true;
@@ -110,16 +124,19 @@
       canvasCtx.restore();
     });
 
+    // Camera
     const camera = new Camera(videoElement, {
       onFrame: async () => {
         canvasElement.width = window.innerWidth;
         canvasElement.height = window.innerHeight;
         await hands.send({ image: videoElement });
+        detectCup(); // كشف الكوب
       },
       width: window.innerWidth,
       height: window.innerHeight
     });
 
+    // زر البدء
     document.getElementById('startButton').addEventListener('click', async () => {
       if (document.documentElement.requestFullscreen) {
         await document.documentElement.requestFullscreen();
@@ -127,6 +144,27 @@
       document.getElementById('startButton').style.display = 'none';
       camera.start();
     });
+
+    // COCO-SSD - التعرف على الكوب
+    let objectModel;
+    let detectingObjects = false;
+
+    cocoSsd.load().then(model => {
+      objectModel = model;
+      console.log("تم تحميل نموذج التعرف على الكائنات");
+    });
+
+    async function detectCup() {
+      if (!objectModel || detectingObjects) return;
+      detectingObjects = true;
+
+      const predictions = await objectModel.detect(videoElement);
+      const foundCup = predictions.find(p => p.class === 'cup' && p.score > 0.6);
+
+      objectMessage.style.display = foundCup ? 'block' : 'none';
+
+      detectingObjects = false;
+    }
   </script>
 </body>
 </html>
