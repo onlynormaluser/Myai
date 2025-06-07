@@ -1,36 +1,69 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="ar">
 <head>
   <meta charset="UTF-8">
-  <title>Hand Tracker</title>
+  <title>تتبع اليد - الله أكبر</title>
   <style>
-    body {
+    html, body {
       margin: 0;
+      padding: 0;
+      height: 100%;
       overflow: hidden;
+      background: black;
     }
+
     canvas, video {
       position: absolute;
       top: 0;
       left: 0;
+      width: 100vw;
+      height: 100vh;
+      object-fit: cover;
+    }
+
+    #startButton {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      padding: 20px 40px;
+      font-size: 24px;
+      cursor: pointer;
+      z-index: 10;
+    }
+
+    #message {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      color: white;
+      font-size: 48px;
+      font-weight: bold;
+      display: none;
+      z-index: 20;
+      text-shadow: 2px 2px 10px #000;
     }
   </style>
+
   <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
 </head>
 <body>
-  <video class="input_video" style="display:none;" autoplay playsinline></video>
-  <canvas class="output_canvas" width="1280" height="720"></canvas>
+  <button id="startButton">ابدأ التتبع</button>
+  <video class="input_video" autoplay playsinline muted></video>
+  <canvas class="output_canvas"></canvas>
+  <div id="message">الله أكبر</div>
 
   <script>
     const videoElement = document.querySelector('.input_video');
     const canvasElement = document.querySelector('.output_canvas');
     const canvasCtx = canvasElement.getContext('2d');
+    const message = document.getElementById('message');
 
     const hands = new Hands({
-      locateFile: (file) => {
-        return `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`;
-      }
+      locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`
     });
 
     hands.setOptions({
@@ -45,25 +78,55 @@
       canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
       canvasCtx.drawImage(results.image, 0, 0, canvasElement.width, canvasElement.height);
 
+      let showMessage = false;
+
       if (results.multiHandLandmarks) {
         for (const landmarks of results.multiHandLandmarks) {
           drawConnectors(canvasCtx, landmarks, HAND_CONNECTIONS, { color: '#0f0', lineWidth: 3 });
           drawLandmarks(canvasCtx, landmarks, { color: '#f00', radius: 5 });
+
+          // تحليل وضعية الإصبع
+          const indexTip = landmarks[8];
+          const indexDip = landmarks[7];
+          const middleTip = landmarks[12];
+          const ringTip = landmarks[16];
+          const pinkyTip = landmarks[20];
+          const thumbTip = landmarks[4];
+          const thumbIp = landmarks[3];
+
+          const isIndexUp = indexTip.y < indexDip.y;
+          const isMiddleDown = middleTip.y > landmarks[10].y;
+          const isRingDown = ringTip.y > landmarks[14].y;
+          const isPinkyDown = pinkyTip.y > landmarks[18].y;
+          const isThumbInward = thumbTip.x < thumbIp.x;
+
+          if (isIndexUp && isMiddleDown && isRingDown && isPinkyDown) {
+            showMessage = true;
+          }
         }
       }
 
+      message.style.display = showMessage ? 'block' : 'none';
       canvasCtx.restore();
     });
 
     const camera = new Camera(videoElement, {
       onFrame: async () => {
+        canvasElement.width = window.innerWidth;
+        canvasElement.height = window.innerHeight;
         await hands.send({ image: videoElement });
       },
-      width: 1280,
-      height: 720
+      width: window.innerWidth,
+      height: window.innerHeight
     });
 
-    camera.start();
+    document.getElementById('startButton').addEventListener('click', async () => {
+      if (document.documentElement.requestFullscreen) {
+        await document.documentElement.requestFullscreen();
+      }
+      document.getElementById('startButton').style.display = 'none';
+      camera.start();
+    });
   </script>
 </body>
 </html>
