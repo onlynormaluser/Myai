@@ -2,7 +2,7 @@
 <html lang="ar">
 <head>
   <meta charset="UTF-8">
-  <title>تتبع اليد - الله أكبر</title>
+  <title>تتبع اليد - الله أكبر / أحبك</title>
   <style>
     html, body {
       margin: 0;
@@ -78,35 +78,51 @@
       canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
       canvasCtx.drawImage(results.image, 0, 0, canvasElement.width, canvasElement.height);
 
-      let showMessage = false;
+      let showTakbeer = false;
+      let showLove = false;
 
       if (results.multiHandLandmarks) {
         for (const landmarks of results.multiHandLandmarks) {
           drawConnectors(canvasCtx, landmarks, HAND_CONNECTIONS, { color: '#0f0', lineWidth: 3 });
           drawLandmarks(canvasCtx, landmarks, { color: '#f00', radius: 5 });
 
-          // تحليل وضعية الإصبع
           const indexTip = landmarks[8];
           const indexDip = landmarks[7];
           const middleTip = landmarks[12];
+          const middleDip = landmarks[11];
           const ringTip = landmarks[16];
+          const ringDip = landmarks[14];
           const pinkyTip = landmarks[20];
+          const pinkyDip = landmarks[18];
           const thumbTip = landmarks[4];
           const thumbIp = landmarks[3];
 
           const isIndexUp = indexTip.y < indexDip.y;
-          const isMiddleDown = middleTip.y > landmarks[10].y;
-          const isRingDown = ringTip.y > landmarks[14].y;
-          const isPinkyDown = pinkyTip.y > landmarks[18].y;
-          const isThumbInward = thumbTip.x < thumbIp.x;
+          const isMiddleUp = middleTip.y < middleDip.y;
+          const isRingDown = ringTip.y > ringDip.y;
+          const isPinkyDown = pinkyTip.y > pinkyDip.y;
 
-          if (isIndexUp && isMiddleDown && isRingDown && isPinkyDown) {
-            showMessage = true;
+          const isOnlyIndexUp = isIndexUp && !isMiddleUp && isRingDown && isPinkyDown;
+          const isOnlyMiddleUp = isMiddleUp && !isIndexUp && isRingDown && isPinkyDown;
+
+          if (isOnlyIndexUp) {
+            showTakbeer = true;
+          } else if (isOnlyMiddleUp) {
+            showLove = true;
           }
         }
       }
 
-      message.style.display = showMessage ? 'block' : 'none';
+      if (showTakbeer) {
+        message.textContent = "الله أكبر";
+        message.style.display = 'block';
+      } else if (showLove) {
+        message.textContent = "أحبك";
+        message.style.display = 'block';
+      } else {
+        message.style.display = 'none';
+      }
+
       canvasCtx.restore();
     });
 
