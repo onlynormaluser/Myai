@@ -2,47 +2,29 @@
 <html lang="ar">
 <head>
   <meta charset="UTF-8">
-  <title>تحليل نبض وتعابير</title>
+  <title>تتبع اليد والوجه</title>
   <style>
-    html, body {
+    body {
       margin: 0;
-      padding: 0;
-      height: 100%;
       overflow: hidden;
       background: black;
-      font-family: Tahoma, sans-serif;
+      color: white;
+      font-family: Arial, sans-serif;
     }
-
-    #video {
+    video, canvas {
       position: absolute;
-      top: 0;
-      left: 0;
       width: 100vw;
       height: 100vh;
       object-fit: cover;
-      z-index: 1;
     }
-
-    #canvas {
-      position: absolute;
-      top: 0;
-      left: 0;
-      width: 100vw;
-      height: 100vh;
-      z-index: 2;
-      pointer-events: none;
-    }
-
     #overlay {
       position: absolute;
       top: 10px;
       left: 10px;
-      z-index: 3;
-      background: rgba(0, 0, 0, 0.6);
-      padding: 10px 20px;
+      z-index: 10;
+      background: rgba(0, 0, 0, 0.5);
+      padding: 10px;
       border-radius: 10px;
-      font-size: 18px;
-      color: white;
     }
   </style>
 </head>
@@ -50,56 +32,52 @@
   <video id="video" autoplay playsinline muted></video>
   <canvas id="canvas"></canvas>
   <div id="overlay">
-    <div id="pulse">نبض القلب: ...</div>
+    <div id="heartRate">نبض القلب: ...</div>
     <div id="expression">الحالة: ...</div>
   </div>
 
-  <!-- مكتبات MediaPipe و face-api -->
+  <!-- مكتبات MediaPipe -->
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/face_mesh.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/face-api.js"></script>
 
   <script>
-    const video = document.getElementById('video');
-    const canvas = document.getElementById('canvas');
-    const ctx = canvas.getContext('2d');
-    const pulseDiv = document.getElementById('pulse');
-    const expressionDiv = document.getElementById('expression');
+    const videoElement = document.getElementById('video');
+    const canvasElement = document.getElementById('canvas');
+    const canvasCtx = canvasElement.getContext('2d');
+    const heartRateElement = document.getElementById('heartRate');
+    const expressionElement = document.getElementById('expression');
 
-    canvas.width = window.innerWidth;
-    canvas.height = window.innerHeight;
+    // إعداد الكاميرا
+    const camera = new Camera(videoElement, {
+      onFrame: async () => {
+        await hands.send({ image: videoElement });
+        await faceMesh.send({ image: videoElement });
+      },
+      width: 640,
+      height: 480
+    });
+    camera.start();
 
-    // إعداد face-api
-    Promise.all([
-      faceapi.nets.tinyFaceDetector.loadFromUri('https://cdn.jsdelivr.net/npm/face-api.js/models'),
-      faceapi.nets.faceExpressionNet.loadFromUri('https://cdn.jsdelivr.net/npm/face-api.js/models')
-    ]).then(startVideo);
+    // إعداد MediaPipe Hands
+    const hands = new Hands({
+      locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`
+    });
+    hands.setOptions({
+      maxNumHands: 1,
+      modelComplexity: 1,
+      minDetectionConfidence: 0.7,
+      minTrackingConfidence: 0.7
+    });
+    hands.onResults((results) => {
+      // يمكن إضافة تحليل إيماءات اليد هنا
+    });
 
-    async function startVideo() {
-      const stream = await navigator.mediaDevices.getUserMedia({ video: true });
-      video.srcObject = stream;
-
-      const camera = new Camera(video, {
-        onFrame: async () => {
-          canvas.width = video.videoWidth;
-          canvas.height = video.videoHeight;
-
-          await faceMesh.send({ image: video });
-          detectFaceExpression();
-        },
-        width: video.videoWidth,
-        height: video.videoHeight
-      });
-
-      camera.start();
-    }
-
-    // إعداد MediaPipe FaceMesh
+    // إعداد MediaPipe Face Mesh
     const faceMesh = new FaceMesh({
       locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${file}`
     });
-
     faceMesh.setOptions({
       maxNumFaces: 1,
       refineLandmarks: true,
@@ -110,62 +88,36 @@
     let greenValues = [];
 
     faceMesh.onResults((results) => {
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
-      ctx.drawImage(results.image, 0, 0, canvas.width, canvas.height);
+      canvasCtx.save();
+      canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
+      canvasCtx.drawImage(results.image, 0, 0, canvasElement.width, canvasElement.height);
 
       if (results.multiFaceLandmarks && results.multiFaceLandmarks.length > 0) {
         const landmarks = results.multiFaceLandmarks[0];
-        drawConnectors(ctx, landmarks, FACEMESH_TESSELATION, { color: '#0ff', lineWidth: 1 });
+        drawConnectors(canvasCtx, landmarks, FACEMESH_TESSELATION, { color: '#0ff', lineWidth: 1 });
 
+        // تقدير نبض القلب من خلال تحليل اللون في منطقة الجبهة
         const forehead = landmarks[10];
-        const x = forehead.x * canvas.width;
-        const y = forehead.y * canvas.height;
-        const pixel = ctx.getImageData(x, y, 1, 1).data;
+        const x = forehead.x * canvasElement.width;
+        const y = forehead.y * canvasElement.height;
+        const pixel = canvasCtx.getImageData(x, y, 1, 1).data;
         greenValues.push(pixel[1]);
 
         if (greenValues.length > 100) {
           greenValues.shift();
           const avg = greenValues.reduce((a, b) => a + b, 0) / greenValues.length;
           const variation = greenValues.reduce((a, b) => a + Math.abs(b - avg), 0) / greenValues.length;
-
-          const bpm = Math.round(60 + variation * 5); // تقريب فقط
-          pulseDiv.textContent = `نبض القلب: ${bpm}`;
+          const bpm = Math.round(60 + variation * 5); // تقدير تقريبي
+          heartRateElement.textContent = `نبض القلب: ${bpm}`;
         }
+
+        // تحليل تعابير الوجه يمكن إضافته هنا
+        // MediaPipe Face Mesh لا يقدم تحليل تعابير الوجه مباشرة
+        // يمكن استخدام مكتبة إضافية مثل face-api.js لهذا الغرض
       }
+
+      canvasCtx.restore();
     });
-
-    // تحليل تعابير الوجه
-    async function detectFaceExpression() {
-      const detections = await faceapi.detectSingleFace(video, new faceapi.TinyFaceDetectorOptions()).withFaceExpressions();
-      if (detections && detections.expressions) {
-        const expressions = detections.expressions;
-        const sorted = Object.entries(expressions).sort((a, b) => b[1] - a[1]);
-        const [mainExpression, confidence] = sorted[0];
-
-        const readable = {
-          neutral: "محايد",
-          happy: "سعيد",
-          sad: "حزين",
-          angry: "غاضب",
-          fearful: "خائف",
-          disgusted: "مشمئز",
-          surprised: "منبهر"
-        };
-
-        const label = readable[mainExpression] || mainExpression;
-        expressionDiv.textContent = `الحالة: ${label}`;
-        speakOnce(`أنت تبدو ${label}`);
-      }
-    }
-
-    let lastSpoken = '';
-    function speakOnce(text) {
-      if (lastSpoken === text) return;
-      lastSpoken = text;
-      const msg = new SpeechSynthesisUtterance(text);
-      msg.lang = 'ar';
-      speechSynthesis.speak(msg);
-    }
   </script>
 </body>
 </html>
