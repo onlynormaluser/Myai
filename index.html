@@ -4,17 +4,18 @@
   <meta charset="UTF-8">
   <title>تتبع اليد والوجه</title>
   <style>
-    body, html {
+    html, body {
       margin: 0;
+      padding: 0;
       overflow: hidden;
-      background: black;
+      background-color: black;
     }
     video, canvas {
       position: absolute;
-      top: 0;
-      left: 0;
       width: 100vw;
       height: 100vh;
+      top: 0;
+      left: 0;
       object-fit: cover;
     }
   </style>
@@ -23,17 +24,23 @@
   <video id="video" autoplay muted playsinline></video>
   <canvas id="canvas"></canvas>
 
-  <!-- MediaPipe Holistic -->
   <script src="https://cdn.jsdelivr.net/npm/@mediapipe/holistic/holistic.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js"></script>
 
   <script>
-    const videoElement = document.getElementById('video');
-    const canvasElement = document.getElementById('canvas');
-    const canvasCtx = canvasElement.getContext('2d');
+    const video = document.getElementById('video');
+    const canvas = document.getElementById('canvas');
+    const ctx = canvas.getContext('2d');
 
+    // تأكد أن الأبعاد يتم تحديثها بعد بدء الفيديو
+    function resizeCanvas() {
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
+    }
+
+    // إعداد MediaPipe Holistic
     const holistic = new Holistic({
-      locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/holistic/${file}`
+      locateFile: file => `https://cdn.jsdelivr.net/npm/@mediapipe/holistic/${file}`
     });
 
     holistic.setOptions({
@@ -45,45 +52,53 @@
       minTrackingConfidence: 0.5
     });
 
+    // الرسم عند وصول النتائج
     holistic.onResults(results => {
-      canvasCtx.save();
-      canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
-      canvasCtx.drawImage(results.image, 0, 0, canvasElement.width, canvasElement.height);
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.drawImage(results.image, 0, 0, canvas.width, canvas.height);
 
       if (results.faceLandmarks) {
-        drawConnectors(canvasCtx, results.faceLandmarks, FACEMESH_TESSELATION,
-                       { color: '#C0C0C070', lineWidth: 1 });
+        drawConnectors(ctx, results.faceLandmarks, FACEMESH_TESSELATION,
+          { color: 'rgba(0,255,0,0.3)', lineWidth: 1 });
+        drawLandmarks(ctx, results.faceLandmarks,
+          { color: 'rgba(255,0,0,0.6)', radius: 1.5 });
       }
+
       if (results.leftHandLandmarks) {
-        drawConnectors(canvasCtx, results.leftHandLandmarks, HAND_CONNECTIONS,
-                       { color: '#CC0000', lineWidth: 5 });
-        drawLandmarks(canvasCtx, results.leftHandLandmarks,
-                      { color: '#00FF00', lineWidth: 2 });
+        drawConnectors(ctx, results.leftHandLandmarks, HAND_CONNECTIONS,
+          { color: 'rgba(0,255,0,0.8)', lineWidth: 3 });
+        drawLandmarks(ctx, results.leftHandLandmarks,
+          { color: 'rgba(255,0,0,0.8)', radius: 4 });
       }
+
       if (results.rightHandLandmarks) {
-        drawConnectors(canvasCtx, results.rightHandLandmarks, HAND_CONNECTIONS,
-                       { color: '#00CC00', lineWidth: 5 });
-        drawLandmarks(canvasCtx, results.rightHandLandmarks,
-                      { color: '#FF0000', lineWidth: 2 });
+        drawConnectors(ctx, results.rightHandLandmarks, HAND_CONNECTIONS,
+          { color: 'rgba(0,255,0,0.8)', lineWidth: 3 });
+        drawLandmarks(ctx, results.rightHandLandmarks,
+          { color: 'rgba(255,0,0,0.8)', radius: 4 });
       }
-      canvasCtx.restore();
     });
 
-    async function startCamera() {
+    // بدء الكاميرا وإرسال الإطارات
+    async function start() {
       const stream = await navigator.mediaDevices.getUserMedia({ video: true });
-      videoElement.srcObject = stream;
-      videoElement.onloadedmetadata = () => {
-        videoElement.play();
-        requestAnimationFrame(processFrame);
+      video.srcObject = stream;
+
+      video.onloadedmetadata = () => {
+        video.play();
+        resizeCanvas();
+        requestAnimationFrame(loop);
       };
     }
 
-    async function processFrame() {
-      await holistic.send({ image: videoElement });
-      requestAnimationFrame(processFrame);
+    async function loop() {
+      if (video.readyState === 4) {
+        await holistic.send({ image: video });
+      }
+      requestAnimationFrame(loop);
     }
 
-    startCamera();
+    start();
   </script>
 </body>
 </html>
