@@ -2,7 +2,7 @@
 <html lang="ar">
 <head>
   <meta charset="UTF-8" />
-  <title>تتبع اليد والوجه مع نبض القلب وحالة وجه محسّنة</title>
+  <title>تتبع اليد والوجه مع نبض القلب وحالة وجه ومحفز توتر</title>
   <style>
     html, body {
       margin: 0; padding: 0; overflow: hidden; background-color: black; color: white;
@@ -24,6 +24,7 @@
   <div id="info">
     <div>نبضات القلب: <span id="bpm">--</span> نبضة/دقيقة</div>
     <div>الحالة العاطفية: <span id="emotion">جاري التحليل...</span></div>
+    <div>مؤشر التوتر: <span id="stress">--</span></div>
   </div>
 
   <script src="https://cdn.jsdelivr.net/npm/@mediapipe/holistic/holistic.js"></script>
@@ -35,11 +36,7 @@
     const ctx = canvas.getContext('2d');
     const bpmElement = document.getElementById('bpm');
     const emotionElement = document.getElementById('emotion');
-
-    function resizeCanvas() {
-      canvas.width = video.videoWidth;
-      canvas.height = video.videoHeight;
-    }
+    const stressElement = document.getElementById('stress');
 
     const holistic = new Holistic({
       locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/holistic/${file}`
@@ -55,18 +52,16 @@
     });
 
     const greenSamples = [];
-    const maxSamples = 600; // 20 ثانية على 30 FPS (يمكن تعديلها)
-
-    // حفظ آخر قياس نبض
+    const maxSamples = 600;
     let lastBPM = '--';
     let lastEmotion = 'جاري التحليل...';
-
-    // أزمنة تحديث النبض والتعبير (مللي ثانية)
-    const bpmUpdateInterval = 60000;    // كل 60 ثانية
-    const emotionUpdateInterval = 3000; // كل 3 ثواني
-
+    const bpmUpdateInterval = 60000;
+    const emotionUpdateInterval = 3000;
     let lastBPMUpdateTime = 0;
     let lastEmotionUpdateTime = 0;
+
+    const handPositions = [];
+    const stressWindow = 90;
 
     function mean(arr) {
       return arr.reduce((a,b) => a + b, 0) / arr.length;
@@ -85,28 +80,19 @@
       return bpm;
     }
 
-    // دالة حساب المسافة بين نقطتين
     function distance(a, b) {
       const dx = a.x - b.x;
       const dy = a.y - b.y;
       return Math.sqrt(dx*dx + dy*dy);
     }
 
-    // تحليل تعبير الوجه بدقة أكبر
     function analyzeExpression(faceLandmarks) {
-      // فتح الفم: النقاط 13 (أسفل الشفة العليا), 14 (أعلى الشفة السفلى)
       const mouthOpen = distance(faceLandmarks[13], faceLandmarks[14]) > 0.04;
-
-      // عيون مفتوحة: نقاط الجفون العليا والسفلى لكل عين
       const rightEyeOpen = distance(faceLandmarks[159], faceLandmarks[145]) > 0.015;
       const leftEyeOpen = distance(faceLandmarks[386], faceLandmarks[374]) > 0.015;
-
-      // الابتسامة: قياس عرض الفم (61 و291) مقابل ارتفاع الفم (13 و14)
       const mouthWidth = distance(faceLandmarks[61], faceLandmarks[291]);
       const mouthHeight = distance(faceLandmarks[13], faceLandmarks[14]);
       const smileRatio = mouthWidth / mouthHeight;
-
-      // حواجب (للغضب/الدهشة) - نقاط الحاجب الأعلى (70 و300) مقابل العين
       const leftEyebrowHeight = faceLandmarks[70].y - faceLandmarks[159].y;
       const rightEyebrowHeight = faceLandmarks[300].y - faceLandmarks[386].y;
 
@@ -118,11 +104,23 @@
       return "محايد";
     }
 
+    function computeStressLevel(positions) {
+      let totalDist = 0;
+      for (let i = 1; i < positions.length; i++) {
+        const dx = positions[i].x - positions[i - 1].x;
+        const dy = positions[i].y - positions[i - 1].y;
+        totalDist += Math.sqrt(dx * dx + dy * dy);
+      }
+      const avgDist = totalDist / (positions.length - 1);
+      if (avgDist < 0.002) return "منخفض";
+      if (avgDist < 0.008) return "متوسط";
+      return "مرتفع";
+    }
+
     holistic.onResults(results => {
       ctx.clearRect(0, 0, canvas.width, canvas.height);
       ctx.drawImage(results.image, 0, 0, canvas.width, canvas.height);
 
-      // رسم ملامح الوجه واليدين
       if (results.faceLandmarks) {
         drawConnectors(ctx, results.faceLandmarks, FACEMESH_TESSELATION, { color: 'rgba(0,255,0,0.3)', lineWidth: 1 });
         drawLandmarks(ctx, results.faceLandmarks, { color: 'rgba(255,0,0,0.6)', radius: 1.5 });
@@ -134,11 +132,24 @@
       if (results.rightHandLandmarks) {
         drawConnectors(ctx, results.rightHandLandmarks, HAND_CONNECTIONS, { color: 'rgba(0,255,0,0.8)', lineWidth: 3 });
         drawLandmarks(ctx, results.rightHandLandmarks, { color: 'rgba(255,0,0,0.8)', radius: 4 });
+
+        const wrist = results.rightHandLandmarks[0];
+        handPositions.push({ x: wrist.x, y: wrist.y });
+
+        if (handPositions.length > stressWindow) {
+          handPositions.shift();
+        }
+
+        if (handPositions.length === stressWindow) {
+          const stressLevel = computeStressLevel(handPositions);
+          stressElement.textContent = stressLevel;
+        }
+      } else {
+        stressElement.textContent = '--';
       }
 
       const now = Date.now();
 
-      // قياس اللون الأخضر في الجبهة (إذا الوجه موجود)
       if (results.faceLandmarks) {
         const foreheadIndices = [10, 338, 297, 332, 284, 251];
         let greenSum = 0;
@@ -159,14 +170,9 @@
           greenSamples.shift();
         }
 
-        // تحديث نبض القلب كل دقيقة
         if (now - lastBPMUpdateTime > bpmUpdateInterval && greenSamples.length >= maxSamples) {
           const bpm = estimateHeartRate(greenSamples, 30);
-          if (bpm > 40 && bpm < 180) {
-            lastBPM = bpm;
-          } else {
-            lastBPM = '--';
-          }
+          lastBPM = (bpm > 40 && bpm < 180) ? bpm : '--';
           bpmElement.textContent = lastBPM;
           lastBPMUpdateTime = now;
         }
@@ -174,7 +180,6 @@
         bpmElement.textContent = '--';
       }
 
-      // تحديث التعبير كل 3 ثواني
       if (results.faceLandmarks && (now - lastEmotionUpdateTime > emotionUpdateInterval)) {
         lastEmotion = analyzeExpression(results.faceLandmarks);
         emotionElement.textContent = lastEmotion;
@@ -184,10 +189,14 @@
       }
     });
 
+    function resizeCanvas() {
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
+    }
+
     async function start() {
       const stream = await navigator.mediaDevices.getUserMedia({ video: true });
       video.srcObject = stream;
-
       video.onloadedmetadata = () => {
         video.play();
         resizeCanvas();
