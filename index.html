@@ -2,7 +2,7 @@
 <html lang="ar">
 <head>
   <meta charset="UTF-8">
-  <title>تتبع اليد - الله أكبر / أحبك</title>
+  <title>تتبع اليد - إشارات</title>
   <style>
     html, body {
       margin: 0;
@@ -43,6 +43,23 @@
       display: none;
       z-index: 20;
       text-shadow: 2px 2px 10px #000;
+      transition: all 0.3s ease;
+    }
+
+    /* تأثير مرعب */
+    .scary {
+      color: red;
+      font-size: 64px;
+      animation: shake 0.4s infinite;
+      text-shadow: 4px 4px 15px #ff0000;
+    }
+
+    @keyframes shake {
+      0% { transform: translate(-50%, -50%) rotate(0deg); }
+      25% { transform: translate(-52%, -48%) rotate(-1deg); }
+      50% { transform: translate(-50%, -52%) rotate(1deg); }
+      75% { transform: translate(-48%, -50%) rotate(-1deg); }
+      100% { transform: translate(-50%, -50%) rotate(0deg); }
     }
   </style>
 
@@ -54,7 +71,7 @@
   <button id="startButton">ابدأ التتبع</button>
   <video class="input_video" autoplay playsinline muted></video>
   <canvas class="output_canvas"></canvas>
-  <div id="message">الله أكبر</div>
+  <div id="message">رسالة</div>
 
   <script>
     const videoElement = document.querySelector('.input_video');
@@ -80,6 +97,7 @@
 
       let showTakbeer = false;
       let showLove = false;
+      let showPower = false;
 
       if (results.multiHandLandmarks) {
         for (const landmarks of results.multiHandLandmarks) {
@@ -105,22 +123,39 @@
           const isOnlyIndexUp = isIndexUp && !isMiddleUp && isRingDown && isPinkyDown;
           const isOnlyMiddleUp = isMiddleUp && !isIndexUp && isRingDown && isPinkyDown;
 
+          const isIndexDown = indexTip.y > indexDip.y;
+          const isMiddleDown = middleTip.y > middleDip.y;
+          const isRingReallyDown = ringTip.y > ringDip.y;
+          const isPinkyReallyDown = pinkyTip.y > pinkyDip.y;
+          const isThumbDown = thumbTip.y > thumbIp.y;
+
+          const isFist = isIndexDown && isMiddleDown && isRingReallyDown && isPinkyReallyDown && isThumbDown;
+
           if (isOnlyIndexUp) {
             showTakbeer = true;
           } else if (isOnlyMiddleUp) {
             showLove = true;
+          } else if (isFist) {
+            showPower = true;
           }
         }
       }
 
       if (showTakbeer) {
         message.textContent = "الله أكبر";
+        message.classList.remove("scary");
         message.style.display = 'block';
       } else if (showLove) {
         message.textContent = "أحبك";
+        message.classList.remove("scary");
+        message.style.display = 'block';
+      } else if (showPower) {
+        message.textContent = "قوة";
+        message.classList.add("scary");
         message.style.display = 'block';
       } else {
         message.style.display = 'none';
+        message.classList.remove("scary");
       }
 
       canvasCtx.restore();
