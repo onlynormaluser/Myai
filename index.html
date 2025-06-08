@@ -5,20 +5,24 @@
   <title>تحليل الحالة النفسية للطالب</title>
   <style>
     html, body {
-      margin: 0; padding: 0; background: #111; color: white; font-family: 'Arial', sans-serif;
-      direction: rtl;
+      margin: 0; padding: 0; background: #111; color: white;
+      font-family: 'Arial', sans-serif; direction: rtl;
     }
     video, canvas {
-      position: absolute; top: 0; left: 0; width: 100vw; height: 100vh; object-fit: cover; z-index: 0;
+      position: absolute; top: 0; left: 0;
+      width: 100vw; height: 100vh; object-fit: cover; z-index: 0;
     }
     #statusBox {
-      position: absolute; top: 10px; right: 10px; background: rgba(0,0,0,0.6);
-      padding: 15px; border-radius: 12px; font-size: 20px; z-index: 10;
+      position: absolute; top: 10px; right: 10px;
+      background: rgba(0,0,0,0.6); padding: 15px; border-radius: 12px;
+      font-size: 20px; z-index: 10;
     }
     #teacherBox {
-      position: absolute; bottom: 20px; right: 20px; background: linear-gradient(45deg, #2e8b57, #3cb371);
+      position: absolute; bottom: 20px; right: 20px;
+      background: linear-gradient(45deg, #2e8b57, #3cb371);
       color: white; padding: 20px; border-radius: 20px;
-      box-shadow: 0 0 15px rgba(0,0,0,0.4); font-size: 18px; max-width: 400px; z-index: 10;
+      box-shadow: 0 0 15px rgba(0,0,0,0.4); font-size: 18px;
+      max-width: 400px; z-index: 10;
     }
   </style>
 </head>
@@ -30,7 +34,6 @@
   <div id="teacherBox">الطالب: جاري التقييم...</div>
 
   <script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/face_mesh.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js"></script>
 
   <script>
@@ -45,17 +48,16 @@
     function distance(a, b) {
       const dx = a.x - b.x;
       const dy = a.y - b.y;
-      return Math.sqrt(dx*dx + dy*dy);
+      return Math.sqrt(dx * dx + dy * dy);
     }
 
     function analyzeState(landmarks) {
       const rightEyeOpen = distance(landmarks[159], landmarks[145]) > 0.015;
-      const leftEyeOpen  = distance(landmarks[386], landmarks[374]) > 0.015;
-      const mouthOpen    = distance(landmarks[13], landmarks[14]) > 0.035;
+      const leftEyeOpen = distance(landmarks[386], landmarks[374]) > 0.015;
+      const mouthOpen = distance(landmarks[13], landmarks[14]) > 0.035;
 
       const blinked = !rightEyeOpen && !leftEyeOpen;
-      blinkHistory.shift();
-      blinkHistory.push(blinked);
+      blinkHistory.shift(); blinkHistory.push(blinked);
 
       const blinkRate = blinkHistory.filter(b => b).length / blinkHistory.length;
       const headStability = Math.abs(landmarks[10].x - landmarks[152].x) < 0.005;
@@ -72,11 +74,20 @@
       if (!mouthOpen && rightEyeOpen && leftEyeOpen) {
         return { state: "مركز ومطمئن", advice: "الطالب مركز — استمر على هذا النهج!" };
       }
+
       return { state: "جارٍ التحليل", advice: "الطالب: جاري التقييم..." };
     }
 
-    const faceMesh = new FaceMesh({ locateFile: file => `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${file}` });
-    faceMesh.setOptions({ maxNumFaces: 1, refineLandmarks: true, minDetectionConfidence: 0.5, minTrackingConfidence: 0.5 });
+    const faceMesh = new FaceMesh({
+      locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${file}`
+    });
+
+    faceMesh.setOptions({
+      maxNumFaces: 1,
+      refineLandmarks: true,
+      minDetectionConfidence: 0.5,
+      minTrackingConfidence: 0.5
+    });
 
     faceMesh.onResults(results => {
       canvas.width = video.videoWidth;
@@ -98,12 +109,21 @@
       }
     });
 
-    const camera = new Camera(video, {
-      onFrame: async () => { await faceMesh.send({ image: video }); },
-      width: 640,
-      height: 480
+    navigator.mediaDevices.getUserMedia({
+      video: { facingMode: { exact: "environment" } }, audio: false
+    }).then(stream => {
+      video.srcObject = stream;
+      video.onloadedmetadata = () => {
+        video.play();
+        function loop() {
+          faceMesh.send({ image: video });
+          requestAnimationFrame(loop);
+        }
+        loop();
+      };
+    }).catch(err => {
+      alert("تعذر الوصول إلى الكاميرا الخلفية: " + err.message);
     });
-    camera.start();
   </script>
 </body>
 </html>
