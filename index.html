@@ -13,16 +13,19 @@
       width: 100vw; height: 100vh; object-fit: cover; z-index: 0;
     }
     #statusBox {
-      position: absolute; top: 10px; right: 10px;
-      background: rgba(0,0,0,0.6); padding: 15px; border-radius: 12px;
-      font-size: 20px; z-index: 10;
+      position: absolute; top: 20px; right: 20px;
+      background: rgba(0,0,0,0.7); padding: 25px; border-radius: 18px;
+      font-size: 30px; font-weight: bold; z-index: 10;
+      max-width: 90vw;
     }
     #teacherBox {
-      position: absolute; bottom: 20px; right: 20px;
+      position: absolute; bottom: 30px; right: 30px;
       background: linear-gradient(45deg, #2e8b57, #3cb371);
-      color: white; padding: 20px; border-radius: 20px;
-      box-shadow: 0 0 15px rgba(0,0,0,0.4); font-size: 18px;
-      max-width: 400px; z-index: 10;
+      color: white; padding: 30px; border-radius: 25px;
+      box-shadow: 0 0 25px rgba(0,0,0,0.5);
+      font-size: 26px; font-weight: bold;
+      max-width: 90vw; line-height: 1.7;
+      z-index: 10;
     }
   </style>
 </head>
@@ -42,13 +45,16 @@
     const ctx = canvas.getContext('2d');
     const statusBox = document.getElementById('statusBox');
     const teacherBox = document.getElementById('teacherBox');
-
     const blinkHistory = Array(30).fill(false);
 
     function distance(a, b) {
       const dx = a.x - b.x;
       const dy = a.y - b.y;
       return Math.sqrt(dx * dx + dy * dy);
+    }
+
+    function randomFrom(arr) {
+      return arr[Math.floor(Math.random() * arr.length)];
     }
 
     function analyzeState(landmarks) {
@@ -63,19 +69,50 @@
       const headStability = Math.abs(landmarks[10].x - landmarks[152].x) < 0.005;
 
       if (blinkRate < 0.1 && headStability && !mouthOpen) {
-        return { state: "نائم أو شارد", advice: "الطالب يبدو مرهقًا — امنحه دقيقة راحة" };
+        return {
+          state: "نائم أو شارد",
+          advice: randomFrom([
+            "الطالب يبدو مرهقًا — يُنصح بإعطائه دقيقة راحة.",
+            "ربما يحتاج إلى استراحة قصيرة ليعود إلى التركيز.",
+            "يشير وضع الطالب إلى النعاس — جرّب طرح سؤال بسيط لإيقاظه بلطف."
+          ])
+        };
       }
       if (mouthOpen && blinkRate > 0.3) {
-        return { state: "متوتر أو قلق", advice: "الطالب متوتر — تحدث إليه بلطف" };
+        return {
+          state: "متوتر أو قلق",
+          advice: randomFrom([
+            "الطالب متوتر — استخدم نبرة مطمئنة.",
+            "أظهر للطالب أنك تدعمه، فقد يكون قلقًا.",
+            "التوتر ظاهر عليه — تواصل معه بهدوء."
+          ])
+        };
       }
       if (!mouthOpen && blinkRate > 0.4) {
-        return { state: "تعب خفيف", advice: "الطالب بحاجة إلى تشجيع — قل له أحسنت!" };
+        return {
+          state: "تعب خفيف",
+          advice: randomFrom([
+            "بحاجة إلى دفعة تشجيعية — قل له: أحسنت!",
+            "طالبك يبدُو مُتعبًا قليلًا، امدحه ليرتفع حماسه.",
+            "التعب واضح، حفّزه بكلمة طيبة."
+          ])
+        };
       }
       if (!mouthOpen && rightEyeOpen && leftEyeOpen) {
-        return { state: "مركز ومطمئن", advice: "الطالب مركز — استمر على هذا النهج!" };
+        return {
+          state: "مركز ومطمئن",
+          advice: randomFrom([
+            "الطالب مركز — أحسنت في إدارتك للدرس!",
+            "التركيز واضح عليه — استمر بنفس الإيقاع.",
+            "ممتاز، الطالب يظهر عليه الهدوء والانتباه."
+          ])
+        };
       }
 
-      return { state: "جارٍ التحليل", advice: "الطالب: جاري التقييم..." };
+      return {
+        state: "جارٍ التحليل",
+        advice: "الطالب: جاري التقييم..."
+      };
     }
 
     const faceMesh = new FaceMesh({
