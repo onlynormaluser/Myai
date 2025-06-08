@@ -2,211 +2,108 @@
 <html lang="ar">
 <head>
   <meta charset="UTF-8" />
-  <title>تحليل الوجه واليد - نبض وتعبير وتوتر</title>
+  <title>تحليل الحالة النفسية للطالب</title>
   <style>
     html, body {
-      margin: 0; padding: 0; overflow: hidden; background: black; color: white;
-      font-family: Arial, sans-serif;
+      margin: 0; padding: 0; background: #111; color: white; font-family: 'Arial', sans-serif;
+      direction: rtl;
     }
     video, canvas {
-      position: absolute; top: 0; left: 0; width: 100vw; height: 100vh; object-fit: cover;
+      position: absolute; top: 0; left: 0; width: 100vw; height: 100vh; object-fit: cover; z-index: 0;
     }
-    #info {
-      position: absolute; top: 10px; left: 10px; z-index: 10;
-      background: rgba(0,0,0,0.5); padding: 10px; border-radius: 8px;
-      max-width: 300px;
+    #statusBox {
+      position: absolute; top: 10px; right: 10px; background: rgba(0,0,0,0.6);
+      padding: 15px; border-radius: 12px; font-size: 20px; z-index: 10;
+    }
+    #teacherBox {
+      position: absolute; bottom: 20px; right: 20px; background: linear-gradient(45deg, #2e8b57, #3cb371);
+      color: white; padding: 20px; border-radius: 20px;
+      box-shadow: 0 0 15px rgba(0,0,0,0.4); font-size: 18px; max-width: 400px; z-index: 10;
     }
   </style>
 </head>
 <body>
   <video id="video" autoplay muted playsinline></video>
   <canvas id="canvas"></canvas>
-  <div id="info">
-    <div>نبضات القلب: <span id="bpm">--</span> نبضة/دقيقة</div>
-    <div>الحالة العاطفية: <span id="emotion">جاري التحليل...</span></div>
-    <div>مستوى التوتر: <span id="tension">--</span></div>
-  </div>
 
-  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/holistic/holistic.js"></script>
+  <div id="statusBox">الحالة النفسية: جاري التحليل...</div>
+  <div id="teacherBox">الطالب: جاري التقييم...</div>
+
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/face_mesh.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js"></script>
 
   <script>
     const video = document.getElementById('video');
     const canvas = document.getElementById('canvas');
     const ctx = canvas.getContext('2d');
-    const bpmElement = document.getElementById('bpm');
-    const emotionElement = document.getElementById('emotion');
-    const tensionElement = document.getElementById('tension');
+    const statusBox = document.getElementById('statusBox');
+    const teacherBox = document.getElementById('teacherBox');
 
-    function resizeCanvas() {
-      canvas.width = video.videoWidth;
-      canvas.height = video.videoHeight;
-    }
-
-    const holistic = new Holistic({
-      locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/holistic/${file}`
-    });
-
-    holistic.setOptions({
-      modelComplexity: 1,
-      smoothLandmarks: true,
-      refineFaceLandmarks: true,
-      minDetectionConfidence: 0.5,
-      minTrackingConfidence: 0.5
-    });
-
-    const greenSamples = [];
-    const maxSamples = 600;
-    const rightHandPositions = [];
-
-    let lastBPM = '--';
-    let lastEmotion = 'جاري التحليل...';
-    let lastBPMUpdateTime = 0;
-    let lastEmotionUpdateTime = 0;
-
-    const bpmUpdateInterval = 60000;
-    const emotionUpdateInterval = 3000;
     const blinkHistory = Array(30).fill(false);
-
-    function mean(arr) {
-      return arr.reduce((a, b) => a + b, 0) / arr.length;
-    }
-
-    function getStd(arr) {
-      const m = mean(arr);
-      return Math.sqrt(arr.map(x => Math.pow(x - m, 2)).reduce((a, b) => a + b, 0) / arr.length);
-    }
-
-    function estimateHeartRate(samples, fps) {
-      let meanVal = mean(samples);
-      let zeroCrossings = 0;
-      for (let i = 1; i < samples.length; i++) {
-        if ((samples[i - 1] - meanVal) * (samples[i] - meanVal) < 0) {
-          zeroCrossings++;
-        }
-      }
-      const freq = zeroCrossings / (2 * (samples.length / fps));
-      return Math.round(freq * 60);
-    }
 
     function distance(a, b) {
       const dx = a.x - b.x;
       const dy = a.y - b.y;
-      return Math.sqrt(dx * dx + dy * dy);
+      return Math.sqrt(dx*dx + dy*dy);
     }
 
-    function analyzeExpression(faceLandmarks, blinkHistory) {
-      const mouthOpen = distance(faceLandmarks[13], faceLandmarks[14]) > 0.04;
-      const rightEyeOpen = distance(faceLandmarks[159], faceLandmarks[145]) > 0.015;
-      const leftEyeOpen = distance(faceLandmarks[386], faceLandmarks[374]) > 0.015;
-      const blinkRate = blinkHistory.filter(b => b === true).length / blinkHistory.length;
+    function analyzeState(landmarks) {
+      const rightEyeOpen = distance(landmarks[159], landmarks[145]) > 0.015;
+      const leftEyeOpen  = distance(landmarks[386], landmarks[374]) > 0.015;
+      const mouthOpen    = distance(landmarks[13], landmarks[14]) > 0.035;
 
-      const mouthWidth = distance(faceLandmarks[61], faceLandmarks[291]);
-      const mouthHeight = distance(faceLandmarks[13], faceLandmarks[14]);
-      const smileRatio = mouthWidth / mouthHeight;
+      const blinked = !rightEyeOpen && !leftEyeOpen;
+      blinkHistory.shift();
+      blinkHistory.push(blinked);
 
-      const leftEyebrowHeight = faceLandmarks[70].y - faceLandmarks[159].y;
-      const rightEyebrowHeight = faceLandmarks[300].y - faceLandmarks[386].y;
+      const blinkRate = blinkHistory.filter(b => b).length / blinkHistory.length;
+      const headStability = Math.abs(landmarks[10].x - landmarks[152].x) < 0.005;
 
-      const headStability = Math.abs(faceLandmarks[10].x - faceLandmarks[152].x) < 0.005;
-
-      if (blinkRate < 0.2 && !mouthOpen && headStability) return "نائم";
-      if (mouthOpen && smileRatio < 3 && rightEyeOpen && leftEyeOpen) return "يتكلم أو جوعان";
-      if (smileRatio > 3 && rightEyeOpen && leftEyeOpen) return "مبتسم أو ضاحك";
-      if (leftEyebrowHeight < 0.02 && rightEyebrowHeight < 0.02) return "غاضب";
-      if (leftEyebrowHeight > 0.05 && rightEyebrowHeight > 0.05) return "مفاجئ";
-      return "محايد";
+      if (blinkRate < 0.1 && headStability && !mouthOpen) {
+        return { state: "نائم أو شارد", advice: "الطالب يبدو مرهقًا — امنحه دقيقة راحة" };
+      }
+      if (mouthOpen && blinkRate > 0.3) {
+        return { state: "متوتر أو قلق", advice: "الطالب متوتر — تحدث إليه بلطف" };
+      }
+      if (!mouthOpen && blinkRate > 0.4) {
+        return { state: "تعب خفيف", advice: "الطالب بحاجة إلى تشجيع — قل له أحسنت!" };
+      }
+      if (!mouthOpen && rightEyeOpen && leftEyeOpen) {
+        return { state: "مركز ومطمئن", advice: "الطالب مركز — استمر على هذا النهج!" };
+      }
+      return { state: "جارٍ التحليل", advice: "الطالب: جاري التقييم..." };
     }
 
-    holistic.onResults(results => {
+    const faceMesh = new FaceMesh({ locateFile: file => `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${file}` });
+    faceMesh.setOptions({ maxNumFaces: 1, refineLandmarks: true, minDetectionConfidence: 0.5, minTrackingConfidence: 0.5 });
+
+    faceMesh.onResults(results => {
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
       ctx.clearRect(0, 0, canvas.width, canvas.height);
       ctx.drawImage(results.image, 0, 0, canvas.width, canvas.height);
 
-      // رسم الوجه واليد
-      if (results.faceLandmarks) {
-        drawConnectors(ctx, results.faceLandmarks, FACEMESH_TESSELATION, { color: 'rgba(0,255,0,0.3)', lineWidth: 1 });
-        drawLandmarks(ctx, results.faceLandmarks, { color: 'rgba(255,0,0,0.6)', radius: 1.5 });
-      }
-      if (results.leftHandLandmarks) {
-        drawConnectors(ctx, results.leftHandLandmarks, HAND_CONNECTIONS, { color: 'rgba(0,255,0,0.8)', lineWidth: 3 });
-        drawLandmarks(ctx, results.leftHandLandmarks, { color: 'rgba(255,0,0,0.8)', radius: 4 });
-      }
-      if (results.rightHandLandmarks) {
-        drawConnectors(ctx, results.rightHandLandmarks, HAND_CONNECTIONS, { color: 'rgba(0,255,0,0.8)', lineWidth: 3 });
-        drawLandmarks(ctx, results.rightHandLandmarks, { color: 'rgba(255,0,0,0.8)', radius: 4 });
-      }
+      if (results.multiFaceLandmarks.length > 0) {
+        const landmarks = results.multiFaceLandmarks[0];
+        drawConnectors(ctx, landmarks, FACEMESH_TESSELATION, { color: 'rgba(0,255,0,0.3)', lineWidth: 1 });
+        drawLandmarks(ctx, landmarks, { color: 'red', radius: 1.5 });
 
-      const now = Date.now();
-
-      // قياس اللون الأخضر من الجبهة
-      if (results.faceLandmarks) {
-        const foreheadIndices = [10, 338, 297, 332, 284, 251];
-        let greenSum = 0;
-        foreheadIndices.forEach(i => {
-          const x = results.faceLandmarks[i].x * canvas.width;
-          const y = results.faceLandmarks[i].y * canvas.height;
-          const pixel = ctx.getImageData(x, y, 1, 1).data;
-          greenSum += pixel[1];
-        });
-        const avgGreen = greenSum / foreheadIndices.length;
-        greenSamples.push(avgGreen);
-        if (greenSamples.length > maxSamples) greenSamples.shift();
-        if (now - lastBPMUpdateTime > bpmUpdateInterval && greenSamples.length >= maxSamples) {
-          const bpm = estimateHeartRate(greenSamples, 30);
-          lastBPM = (bpm > 40 && bpm < 180) ? bpm : '--';
-          bpmElement.textContent = lastBPM;
-          lastBPMUpdateTime = now;
-        }
+        const analysis = analyzeState(landmarks);
+        statusBox.textContent = `الحالة النفسية: ${analysis.state}`;
+        teacherBox.textContent = `الطالب: ${analysis.advice}`;
       } else {
-        bpmElement.textContent = '--';
-      }
-
-      // تحليل التوتر في اليد
-      if (results.rightHandLandmarks) {
-        const wrist = results.rightHandLandmarks[0];
-        rightHandPositions.push({ x: wrist.x, y: wrist.y });
-        if (rightHandPositions.length > 60) rightHandPositions.shift();
-        const xs = rightHandPositions.map(p => p.x);
-        const ys = rightHandPositions.map(p => p.y);
-        const tensionScore = (getStd(xs) + getStd(ys)) / 2;
-        tensionElement.textContent = tensionScore > 0.005 ? "مرتفع" : "منخفض";
-      } else {
-        tensionElement.textContent = "--";
-      }
-
-      // تحليل التعبير
-      if (results.faceLandmarks && now - lastEmotionUpdateTime > emotionUpdateInterval) {
-        const rightEyeOpen = distance(results.faceLandmarks[159], results.faceLandmarks[145]) > 0.015;
-        const leftEyeOpen = distance(results.faceLandmarks[386], results.faceLandmarks[374]) > 0.015;
-        const blinked = !rightEyeOpen && !leftEyeOpen;
-        blinkHistory.shift(); blinkHistory.push(blinked);
-
-        lastEmotion = analyzeExpression(results.faceLandmarks, blinkHistory);
-        emotionElement.textContent = lastEmotion;
-        lastEmotionUpdateTime = now;
-      } else if (!results.faceLandmarks) {
-        emotionElement.textContent = "لا يوجد وجه";
+        statusBox.textContent = "الحالة النفسية: لا يوجد وجه";
+        teacherBox.textContent = "الطالب: غير ظاهر أمام الكاميرا";
       }
     });
 
-    async function start() {
-      const stream = await navigator.mediaDevices.getUserMedia({ video: true });
-      video.srcObject = stream;
-      video.onloadedmetadata = () => {
-        video.play();
-        resizeCanvas();
-        requestAnimationFrame(loop);
-      };
-    }
-
-    async function loop() {
-      if (video.readyState === 4) {
-        await holistic.send({ image: video });
-      }
-      requestAnimationFrame(loop);
-    }
-
-    start();
+    const camera = new Camera(video, {
+      onFrame: async () => { await faceMesh.send({ image: video }); },
+      width: 640,
+      height: 480
+    });
+    camera.start();
   </script>
 </body>
 </html>
