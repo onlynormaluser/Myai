@@ -1,38 +1,59 @@
 <!DOCTYPE html>
 <html lang="ar">
 <head>
-  <meta charset="UTF-8" />
+  <meta charset="UTF-8">
   <title>تحليل الحالة النفسية للطالب</title>
   <style>
     html, body {
-      margin: 0; padding: 0; background: #111; color: white;
-      font-family: 'Arial', sans-serif; direction: rtl;
+      margin: 0; padding: 0;
+      background: #000; color: #fff;
+      font-family: 'Arial', sans-serif;
+      overflow: hidden;
     }
     video, canvas {
-      position: absolute; top: 0; left: 0;
-      width: 100vw; height: 100vh; object-fit: cover; z-index: 0;
+      position: absolute;
+      top: 0; left: 0;
+      width: 100vw; height: 100vh;
+      object-fit: cover;
+      z-index: 1;
+    }
+    #statusBox, #teacherBox {
+      position: absolute;
+      left: 50%;
+      transform: translateX(-50%);
+      background: rgba(0,0,0,0.7);
+      padding: 20px 30px;
+      border-radius: 20px;
+      font-size: 2em;
+      text-align: center;
+      z-index: 10;
+      transition: opacity 1s ease-in-out;
     }
     #statusBox {
-      position: absolute; top: 20px; right: 20px;
-      background: rgba(0,0,0,0.7); padding: 25px; border-radius: 18px;
-      font-size: 30px; font-weight: bold; z-index: 10;
-      max-width: 90vw;
+      top: 20px;
     }
     #teacherBox {
-      position: absolute; bottom: 30px; right: 30px;
-      background: linear-gradient(45deg, #2e8b57, #3cb371);
-      color: white; padding: 30px; border-radius: 25px;
-      box-shadow: 0 0 25px rgba(0,0,0,0.5);
-      font-size: 26px; font-weight: bold;
-      max-width: 90vw; line-height: 1.7;
-      z-index: 10;
+      bottom: 40px;
+      animation: slideFade 1s ease-in-out;
+    }
+    .hidden {
+      opacity: 0;
+    }
+    @keyframes slideFade {
+      from {
+        opacity: 0;
+        transform: translateY(30px);
+      }
+      to {
+        opacity: 1;
+        transform: translateY(0);
+      }
     }
   </style>
 </head>
 <body>
-  <video id="video" autoplay muted playsinline></video>
+  <video id="video" autoplay playsinline muted></video>
   <canvas id="canvas"></canvas>
-
   <div id="statusBox">الحالة النفسية: جاري التحليل...</div>
   <div id="teacherBox">الطالب: جاري التقييم...</div>
 
@@ -45,78 +66,34 @@
     const ctx = canvas.getContext('2d');
     const statusBox = document.getElementById('statusBox');
     const teacherBox = document.getElementById('teacherBox');
-    const blinkHistory = Array(30).fill(false);
 
-    function distance(a, b) {
-      const dx = a.x - b.x;
-      const dy = a.y - b.y;
-      return Math.sqrt(dx * dx + dy * dy);
+    let lastState = "جاري التحليل...";
+    let lastAdvice = "جاري التقييم...";
+    let lastUpdate = 0;
+    const adviceUpdateInterval = 10000;
+
+    const adviceMap = {
+      "نائم": ["نبه الطالب بلطف", "أعطه استراحة", "ربما يحتاج إلى نوم"],
+      "يتكلم": ["يبدو أنه يريد أن يشارك", "استمع له قليلًا", "شجعه على الحديث البناء"],
+      "مبتسم": ["مزاجه جيد", "شجعه للاستمرار", "حافظ على روحه الإيجابية"],
+      "غاضب": ["خفف التوتر في الصف", "اطلب منه التنفس بهدوء", "تحدث معه لاحقًا"],
+      "مفاجئ": ["حدث شيء لفت انتباهه", "اربط الشرح بشيء جذاب", "استغل الفرصة لإشراكه"],
+      "محايد": ["مزاجه مستقر", "استمر بالشرح", "راقب التغيرات"],
+    };
+
+    function getAdvice(state) {
+      const list = adviceMap[state] || ["راقب الطالب بهدوء"];
+      return list[Math.floor(Math.random() * list.length)];
     }
 
-    function randomFrom(arr) {
-      return arr[Math.floor(Math.random() * arr.length)];
-    }
-
-    function analyzeState(landmarks) {
-      const rightEyeOpen = distance(landmarks[159], landmarks[145]) > 0.015;
-      const leftEyeOpen = distance(landmarks[386], landmarks[374]) > 0.015;
-      const mouthOpen = distance(landmarks[13], landmarks[14]) > 0.035;
-
-      const blinked = !rightEyeOpen && !leftEyeOpen;
-      blinkHistory.shift(); blinkHistory.push(blinked);
-
-      const blinkRate = blinkHistory.filter(b => b).length / blinkHistory.length;
-      const headStability = Math.abs(landmarks[10].x - landmarks[152].x) < 0.005;
-
-      if (blinkRate < 0.1 && headStability && !mouthOpen) {
-        return {
-          state: "نائم أو شارد",
-          advice: randomFrom([
-            "الطالب يبدو مرهقًا — يُنصح بإعطائه دقيقة راحة.",
-            "ربما يحتاج إلى استراحة قصيرة ليعود إلى التركيز.",
-            "يشير وضع الطالب إلى النعاس — جرّب طرح سؤال بسيط لإيقاظه بلطف."
-          ])
-        };
-      }
-      if (mouthOpen && blinkRate > 0.3) {
-        return {
-          state: "متوتر أو قلق",
-          advice: randomFrom([
-            "الطالب متوتر — استخدم نبرة مطمئنة.",
-            "أظهر للطالب أنك تدعمه، فقد يكون قلقًا.",
-            "التوتر ظاهر عليه — تواصل معه بهدوء."
-          ])
-        };
-      }
-      if (!mouthOpen && blinkRate > 0.4) {
-        return {
-          state: "تعب خفيف",
-          advice: randomFrom([
-            "بحاجة إلى دفعة تشجيعية — قل له: أحسنت!",
-            "طالبك يبدُو مُتعبًا قليلًا، امدحه ليرتفع حماسه.",
-            "التعب واضح، حفّزه بكلمة طيبة."
-          ])
-        };
-      }
-      if (!mouthOpen && rightEyeOpen && leftEyeOpen) {
-        return {
-          state: "مركز ومطمئن",
-          advice: randomFrom([
-            "الطالب مركز — أحسنت في إدارتك للدرس!",
-            "التركيز واضح عليه — استمر بنفس الإيقاع.",
-            "ممتاز، الطالب يظهر عليه الهدوء والانتباه."
-          ])
-        };
-      }
-
-      return {
-        state: "جارٍ التحليل",
-        advice: "الطالب: جاري التقييم..."
-      };
+    function resizeCanvas() {
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
     }
 
     const faceMesh = new FaceMesh({
-      locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${file}`
+      locateFile: (file) =>
+        `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${file}`
     });
 
     faceMesh.setOptions({
@@ -126,41 +103,91 @@
       minTrackingConfidence: 0.5
     });
 
+    function distance(a, b) {
+      const dx = a.x - b.x;
+      const dy = a.y - b.y;
+      return Math.sqrt(dx * dx + dy * dy);
+    }
+
+    function analyzeState(landmarks) {
+      const mouthOpen = distance(landmarks[13], landmarks[14]) > 0.04;
+      const rightEyeOpen = distance(landmarks[159], landmarks[145]) > 0.015;
+      const leftEyeOpen = distance(landmarks[386], landmarks[374]) > 0.015;
+
+      const mouthWidth = distance(landmarks[61], landmarks[291]);
+      const mouthHeight = distance(landmarks[13], landmarks[14]);
+      const smileRatio = mouthWidth / mouthHeight;
+
+      const leftEyebrowHeight = landmarks[70].y - landmarks[159].y;
+      const rightEyebrowHeight = landmarks[300].y - landmarks[386].y;
+
+      const headStability = Math.abs(landmarks[10].x - landmarks[152].x) < 0.005;
+
+      if (!rightEyeOpen && !leftEyeOpen && headStability) return { state: "نائم", advice: getAdvice("نائم") };
+      if (mouthOpen && smileRatio < 3 && rightEyeOpen && leftEyeOpen) return { state: "يتكلم", advice: getAdvice("يتكلم") };
+      if (smileRatio > 3 && rightEyeOpen && leftEyeOpen) return { state: "مبتسم", advice: getAdvice("مبتسم") };
+      if (leftEyebrowHeight < 0.02 && rightEyebrowHeight < 0.02) return { state: "غاضب", advice: getAdvice("غاضب") };
+      if (leftEyebrowHeight > 0.05 && rightEyebrowHeight > 0.05) return { state: "مفاجئ", advice: getAdvice("مفاجئ") };
+      return { state: "محايد", advice: getAdvice("محايد") };
+    }
+
     faceMesh.onResults(results => {
-      canvas.width = video.videoWidth;
-      canvas.height = video.videoHeight;
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
-      ctx.drawImage(results.image, 0, 0, canvas.width, canvas.height);
+      if (results.image) {
+        ctx.drawImage(results.image, 0, 0, canvas.width, canvas.height);
+      }
+
+      const now = Date.now();
 
       if (results.multiFaceLandmarks.length > 0) {
         const landmarks = results.multiFaceLandmarks[0];
-        drawConnectors(ctx, landmarks, FACEMESH_TESSELATION, { color: 'rgba(0,255,0,0.3)', lineWidth: 1 });
-        drawLandmarks(ctx, landmarks, { color: 'red', radius: 1.5 });
+        drawConnectors(ctx, landmarks, FACEMESH_TESSELATION, { color: 'rgba(0,255,0,0.2)', lineWidth: 1 });
+        drawLandmarks(ctx, landmarks, { color: 'red', radius: 1 });
 
         const analysis = analyzeState(landmarks);
-        statusBox.textContent = `الحالة النفسية: ${analysis.state}`;
-        teacherBox.textContent = `الطالب: ${analysis.advice}`;
+        lastState = analysis.state;
+
+        if (now - lastUpdate > adviceUpdateInterval) {
+          lastAdvice = analysis.advice;
+          lastUpdate = now;
+
+          // Fade out then update
+          teacherBox.classList.add('hidden');
+          setTimeout(() => {
+            teacherBox.textContent = `الطالب: ${lastAdvice}`;
+            teacherBox.classList.remove('hidden');
+            teacherBox.style.animation = 'none';
+            void teacherBox.offsetWidth;
+            teacherBox.style.animation = 'slideFade 1s ease-in-out';
+          }, 1000);
+        }
+
+        statusBox.textContent = `الحالة النفسية: ${lastState}`;
       } else {
         statusBox.textContent = "الحالة النفسية: لا يوجد وجه";
         teacherBox.textContent = "الطالب: غير ظاهر أمام الكاميرا";
       }
     });
 
-    navigator.mediaDevices.getUserMedia({
-      video: { facingMode: { exact: "environment" } }, audio: false
-    }).then(stream => {
+    async function startVideo() {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: {
+          facingMode: { exact: "environment" } // الكاميرا الخلفية
+        }
+      });
       video.srcObject = stream;
       video.onloadedmetadata = () => {
         video.play();
-        function loop() {
-          faceMesh.send({ image: video });
-          requestAnimationFrame(loop);
-        }
+        resizeCanvas();
         loop();
       };
-    }).catch(err => {
-      alert("تعذر الوصول إلى الكاميرا الخلفية: " + err.message);
-    });
+    }
+
+    async function loop() {
+      await faceMesh.send({ image: video });
+      requestAnimationFrame(loop);
+    }
+
+    startVideo();
   </script>
 </body>
 </html>
